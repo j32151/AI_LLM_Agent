@@ -102,7 +102,7 @@ def get_search_context(query: str) -> str:
 @app.post("/api/chat")
 def chat_with_bot(req: ChatRequest):
     try:
-        # LLM 초기화
+        # LLM 초기화 (원래 쓰시던 gemini-3.8-flash로 복구 완료!)
         llm = ChatGoogleGenerativeAI(
             model="gemini-3.8-flash", 
             temperature=0.2, 
