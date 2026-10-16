@@ -104,7 +104,7 @@ def chat_with_bot(req: ChatRequest):
     try:
         # LLM 초기화
         llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash", 
+            model="gemini-3.8-flash", 
             temperature=0.2, 
             api_key=os.getenv("GEMINI_API_KEY")
         )
