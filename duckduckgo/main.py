@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -86,7 +87,7 @@ def get_search_context(query: str) -> str:
 def chat_with_bot(req: ChatRequest):
     try:
         # LLM 초기화
-        llm = ChatGoogleGenerativeAI(model="gemini-3.8-flash", temperature=0.2)
+        llm = ChatGoogleGenerativeAI(model="gemini-3.8-flash", temperature=0.2, api_key=os.getenv("GEMINI_API_KEY"))
         
         # LCEL 프롬프트 설정
         prompt = ChatPromptTemplate.from_messages([
