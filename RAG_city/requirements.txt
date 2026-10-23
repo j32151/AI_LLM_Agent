@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-multipart
+langchain
+langchain-openai
+langchain-google-genai
+langchain-community
+supabase
+pdfplumber
+pydantic
+sse-starlette
