@@ -5,6 +5,7 @@ langchain
 langchain-openai
 langchain-google-genai
 langchain-community
+langchain-text-splitters
 supabase
 pdfplumber
 pydantic
