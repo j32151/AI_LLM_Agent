@@ -33,10 +33,10 @@ app.add_middleware(
 
 # --- 환경변수 로드 ---
 # 구글 클라우드 런 환경변수 또는 로컬 .env에서 가져옵니다.
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY")
 
 # Supabase 클라이언트 초기화
 try:
