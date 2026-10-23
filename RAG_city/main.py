@@ -32,25 +32,24 @@ app.add_middleware(
 )
 
 # --- 환경변수 로드 ---
-# 구글 클라우드 런 환경변수 또는 로컬 .env에서 가져옵니다.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY")
 
-# Supabase 클라이언트 초기화
-try:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-except Exception as e:
-    print(f"Supabase 초기화 오류: {str(e)}")
+# Supabase 클라이언트 초기화 (환경변수 누락 시 명시적 에러 발생)
+if not SUPABASE_URL or not SUPABASE_API_KEY:
+    raise ValueError("Supabase 환경변수가 설정되지 않았습니다.")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_API_KEY)
 
 # 모델 초기화
 # 오픈 AI 임베딩
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small", openai_api_key=OPENAI_API_KEY)
-# 구글 LLM (질의 확장 및 답변 생성용)
+
+# 구글 LLM (질의 확장 및 답변 생성용) - GEMINI_API_KEY로 변경됨
 llm = ChatGoogleGenerativeAI(
     model="gemini-3.5-flash-lite", 
-    google_api_key=GOOGLE_API_KEY, 
+    google_api_key=GEMINI_API_KEY, 
     temperature=0.3
 )
 
@@ -93,7 +92,6 @@ async def upload_pdf(file: UploadFile = File(...)):
         ]
         
         # 4. Supabase 벡터 DB에 삽입
-        # SupabaseVectorStore를 사용해 OpenAI 임베딩 후 pgvector에 저장
         SupabaseVectorStore.from_documents(
             documents,
             embeddings,
@@ -130,18 +128,16 @@ async def chat_endpoint(request: ChatRequest):
             formatted_chat_history.append(AIMessage(content=msg.get("content")))
 
     # 2. Query Augmentation Chain 구성
-    # 대명사 해소 및 의도를 파악하여 하나의 명료한 질의로 변환
     condense_question_system = """기존의 대화 내용을 활용하여 사용자가 질문한 의도를 파악해서 한문장의 명료한 질문으로 변환하라. 대명사나 이, 저, 그와 같은 표현을 명확한 명사로 표현하라."""
     condense_question_prompt = ChatPromptTemplate.from_messages([
         ("system", condense_question_system),
-        MessagesPlaceholder(variable_name="chat_history"), # 과거 대화 내역이 통째로 들어가는 동적 빈칸
+        MessagesPlaceholder(variable_name="chat_history"),
         ("human", "{question}")
     ])
     
     query_augmentation_chain = condense_question_prompt | llm | StrOutputParser()
     
     try:
-        # 체인 실행 (데이터 주입)
         if formatted_chat_history:
             augmented_query = query_augmentation_chain.invoke({
                 "chat_history": formatted_chat_history,
@@ -164,15 +160,13 @@ async def chat_endpoint(request: ChatRequest):
         retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
         retrieved_docs = retriever.invoke(augmented_query)
         
-        # 검색된 컨텍스트 문자열 결합
         context = "\n\n".join(doc.page_content for doc in retrieved_docs)
-        # 출처 목록 추출
         sources = [{"content": doc.page_content, "metadata": doc.metadata} for doc in retrieved_docs]
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase 검색 중 오류 발생: {str(e)}")
 
-    # 4. LLM 답변 생성 프롬프트 설계 (도시 정책 전문가)
+    # 4. LLM 답변 생성 프롬프트 설계
     qa_system_message = """너는 문서에 기반해 답변하는 도시 정책 전문가야.
 아래 제공된 [Context]를 바탕으로 사용자의 질문에 전문적이고 명확하게 답변해.
 만약 [Context]에 질문에 대한 정보가 없다면, 모른다고 솔직하게 답변해.
@@ -188,7 +182,6 @@ async def chat_endpoint(request: ChatRequest):
     
     # 5. 스트리밍 응답 제너레이터 구현
     async def stream_generator():
-        # 첫 번째 SSE 이벤트: 출처(Sources) 및 증강된 질의 정보 전송
         meta_data = {
             "type": "metadata",
             "augmented_query": augmented_query,
@@ -196,17 +189,14 @@ async def chat_endpoint(request: ChatRequest):
         }
         yield f"data: {json.dumps(meta_data, ensure_ascii=False)}\n\n"
         
-        # LLM 스트리밍 생성
         qa_chain = qa_prompt | llm | StrOutputParser()
         
         try:
-            # astream을 사용하여 스트리밍 핸들링
             async for chunk in qa_chain.astream({
                 "context": context,
                 "chat_history": formatted_chat_history,
                 "question": augmented_query
             }):
-                # 청크 데이터를 JSON 형태로 SSE 포맷에 맞춰 전송
                 chunk_data = {"type": "chunk", "text": chunk}
                 yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
                 
@@ -215,8 +205,6 @@ async def chat_endpoint(request: ChatRequest):
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
             
         finally:
-            # 스트림 종료 시그널
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-    # Server-Sent Events (SSE)로 반환
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
