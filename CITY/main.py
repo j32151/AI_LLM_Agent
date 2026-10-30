@@ -4,7 +4,7 @@ Google Cloud Run + FastAPI + LangChain
 
 [RAG 구성]
 1. PDF 파일 읽기     : pypdf → LangChain Document → RecursiveCharacterTextSplitter
-2. 임베딩 모델       : Google Generative AI Embeddings (gemini-embedding-001)
+2. 임베딩 모델       : OpenAI Embeddings (text-embedding-3-small)
 3. 벡터 DB           : Chroma (langchain_chroma, 컨테이너 디스크에 저장)
 4. 다중질문 검색기   : MultiQueryRetriever
 5. 질의 확장         : RunnablePassthrough.assign(expanded_query=...)
@@ -13,9 +13,10 @@ Google Cloud Run + FastAPI + LangChain
                         사용자의 질문에 답변하세요"
 
 [환경 변수]
-GEMINI_API_KEY   Gemini API 키 (필수)
+GEMINI_API_KEY   Gemini API 키 (필수, 답변·질의확장·다중질문 생성)
+OPENAI_API_KEY   OpenAI API 키 (필수, 임베딩)
 GEMINI_MODEL     답변/질의확장 모델 (기본 gemini-2.5-flash)
-EMBEDDING_MODEL  임베딩 모델 (기본 models/gemini-embedding-001)
+EMBEDDING_MODEL  임베딩 모델 (기본 text-embedding-3-small)
 CHROMA_DIR       Chroma 저장 경로 (기본 /tmp/chroma_db)
 
 [Cloud Run 설정]
@@ -55,7 +56,8 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import OpenAIEmbeddings
 
 # LangChain 1.x 에서 MultiQueryRetriever 는 langchain_classic 으로 이동
 try:
@@ -77,9 +79,9 @@ SYSTEM_ROLE = (
 )
 
 LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 CHROMA_DIR = os.getenv("CHROMA_DIR", "/tmp/chroma_db")
-COLLECTION_NAME = "seoul_urban_planning"
+COLLECTION_NAME = "seoul_urban_planning_openai"
 
 MAX_FILE_SIZE = 10 * 1024 * 1024   # 10MiB
 MAX_PDF_PAGES = 500
@@ -133,8 +135,8 @@ def get_llm():
 
 @lru_cache
 def get_embeddings():
-    required_env("GEMINI_API_KEY")
-    return GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
+    required_env("OPENAI_API_KEY")
+    return OpenAIEmbeddings(model=EMBEDDING_MODEL)
 
 
 _store_lock = threading.RLock()
@@ -208,13 +210,13 @@ def load_pdf(data: bytes, filename: str) -> list[Document]:
 
 
 def embed_with_retry(texts: list[str]) -> list[list[float]]:
-    """Gemini 임베딩 (429 한도 초과 시 재시도)"""
+    """OpenAI 임베딩 (429 한도 초과 시 재시도)"""
     for attempt in range(5):
         try:
             return get_embeddings().embed_documents(texts)
         except Exception as exc:
             msg = str(exc)
-            if ("429" in msg or "RESOURCE_EXHAUSTED" in msg) and attempt < 4:
+            if ("429" in msg or "rate limit" in msg.lower()) and attempt < 4:
                 time.sleep(5 * (attempt + 1))
                 continue
             raise
@@ -244,7 +246,7 @@ def ingest_pdf(data: bytes, filename: str) -> dict:
         for start in range(0, len(chunks), EMBED_BATCH):
             batch = chunks[start:start + EMBED_BATCH]
             texts = [c.page_content for c in batch]
-            vectors = embed_with_retry(texts)               # Google 임베딩
+            vectors = embed_with_retry(texts)               # OpenAI 임베딩
             collection.add(                                  # Chroma 저장
                 ids=[chunk_id(filename, start + i) for i in range(len(batch))],
                 embeddings=vectors,
@@ -407,8 +409,9 @@ class QueryRequest(BaseModel):
 @app.get("/health")
 def health():
     gemini_ok = bool(os.getenv("GEMINI_API_KEY"))
+    openai_ok = bool(os.getenv("OPENAI_API_KEY"))
     chroma_ok, chroma_error, chunks, docs = False, None, 0, 0
-    if gemini_ok:
+    if openai_ok:
         try:
             chunks = chroma_count()
             docs = len(list_documents())
@@ -417,8 +420,9 @@ def health():
             chroma_error = f"{type(exc).__name__}: {exc}"[:300]
 
     return {
-        "status": "ok" if (gemini_ok and chroma_ok) else "degraded",
+        "status": "ok" if (gemini_ok and openai_ok and chroma_ok) else "degraded",
         "gemini_api_key": gemini_ok,
+        "openai_api_key": openai_ok,
         "chroma": {"ready": chroma_ok, "chunks": chunks, "path": CHROMA_DIR, "error": chroma_error},
         "documents": docs,
         "uptime_sec": round(time.time() - STARTED_AT, 1),
@@ -445,7 +449,7 @@ def config():
             "storage": f"persist_directory: {CHROMA_DIR}",
         },
         "embedding": {
-            "provider": "Google Generative AI (langchain-google-genai)",
+            "provider": "OpenAI (langchain-openai)",
             "model": EMBEDDING_MODEL,
         },
         "llm": {
