@@ -1,0 +1,23 @@
+# ==============================================================================
+# Advanced RAG Server (FAISS + Multi-Query + Hybrid Search + RAG Fusion)
+# Python Dependencies for Google Cloud Run / Local FastAPI Server
+# ==============================================================================
+
+# Web Framework & ASGI Server
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.10.4
+
+# Vector Search & Sparse Keyword Search (Hybrid Search)
+faiss-cpu==1.9.0.post1
+rank-bm25==0.2.2
+numpy==1.26.4
+
+# PDF Parsing & Document Processing
+pypdf==5.1.0
+
+# Google Gemini SDK (LLM Multi-Query Expansion, Embeddings & RAG Answer Generation)
+google-genai==1.2.0
+google-generativeai==0.8.3
+
