@@ -1,0 +1,16 @@
+# ==============================================================================
+# PressAI Studio v2.4 // Graph Reporter Server Dependencies
+# LangGraph (StateGraph + BasicToolNode + .stream) + Google AI + Boyer-Moore
+# ==============================================================================
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+requests==2.32.3
+
+# LangGraph & LangChain Google AI Integration
+langgraph==0.2.60
+langchain-core==0.3.28
+langchain-google-genai==2.0.7
+google-generativeai==0.8.3
+duckduckgo-search==7.2.1
